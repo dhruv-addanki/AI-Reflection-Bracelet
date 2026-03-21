@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2021",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@bracelet/shared-types": [
+        "packages/shared-types/src"
+      ],
+      "@bracelet/ui-tokens": [
+        "packages/ui-tokens/src"
+      ]
+    }
+  }
+}

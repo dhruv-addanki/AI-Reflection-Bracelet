@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "AI Reflection Bracelet",
+    "slug": "ai-reflection-bracelet",
+    "scheme": "aireflectionbracelet",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "experiments": {
+      "typedRoutes": false
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

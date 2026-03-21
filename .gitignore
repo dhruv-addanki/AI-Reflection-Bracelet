@@ -1,0 +1,13 @@
+node_modules
+.expo
+.DS_Store
+__pycache__
+.pytest_cache
+.venv
+.env
+.env.*
+dist
+*.pyc
+apps/api/data/*.json
+apps/mobile/.expo
+apps/mobile/dist
