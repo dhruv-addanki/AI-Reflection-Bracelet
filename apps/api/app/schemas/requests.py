@@ -56,6 +56,16 @@ class SeedDemoRequest(BaseModel):
     reset: bool = Field(default=True)
 
 
+class BraceletTestUploadRequest(BaseModel):
+    user_id: str
+    device_id: str
+    session_id: str
+    filename: str
+    duration_ms: int = Field(ge=0)
+    timestamp_ms: int = Field(ge=0)
+    message: str
+
+
 class ProcessSessionPayload(BaseModel):
     session_id: str
     user_id: str

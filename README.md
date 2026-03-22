@@ -8,6 +8,8 @@ Hackathon-ready monorepo for a voice-first mental wellness bracelet product aime
 apps/
   api/         FastAPI backend with modular processing pipeline and local JSON persistence fallback
   mobile/      Expo Router + TypeScript mobile app for onboarding, recap, entries, patterns, and simulation
+firmware/
+  xiao_bracelet/ Arduino scaffold for XIAO ESP32S3 Sense Wi-Fi connect, test POST, and WAV upload
 packages/
   shared-types Shared domain types used by the mobile app
   ui-tokens    Centralized theme tokens for the warm dark UI
@@ -54,6 +56,19 @@ python scripts/simulate_bracelet_upload.py
 ```
 
 You can also use the in-app `Simulate Bracelet Session` screen to create uploads without hardware.
+
+## XIAO Wi-Fi Upload Bring-Up
+
+There is now a firmware scaffold at `firmware/xiao_bracelet`.
+
+Recommended bring-up order:
+
+1. Edit `firmware/xiao_bracelet/wifi_config.h`
+2. Flash the sketch and confirm Serial prints Wi-Fi connection + IP
+3. Use the temporary `POST /test-upload` route to verify bracelet-to-backend connectivity
+4. Turn on the real multipart WAV upload to `POST /sessions/upload`
+
+The firmware defaults to a fake-recorder mode in this repo so you can test the transport path before wiring in your existing proven recorder hooks.
 
 ## Environment Variables
 
