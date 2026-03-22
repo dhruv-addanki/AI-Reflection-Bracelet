@@ -1,11 +1,11 @@
 #pragma once
 
 // Replace these placeholders with your current hackathon network and backend values.
-static const char* WIFI_SSID = "Kriti's iPhone";
+static const char* WIFI_SSID = "kphone";
 static const char* WIFI_PASSWORD = "kriti1111";
 
 // Backend host information. Use your laptop's LAN IP while developing.
-static const char* API_HOST = "172.20.10.4";
+static const char* API_HOST = "172.20.10.11";
 static const uint16_t API_PORT = 8000;
 static const bool API_USE_TLS = false;
 
@@ -15,7 +15,7 @@ static const char* DEVICE_ID = "device_7514a16621e6";
 static const char* FIRMWARE_VERSION = "wifi-upload-v1";
 
 // Update these pin values to match your current XIAO + recorder wiring.
-static const int BUTTON_PIN = 2;
+static const int BUTTON_PIN = D1;
 static const int SD_CS_PIN = 21;
 
 // Transport rollout controls.
