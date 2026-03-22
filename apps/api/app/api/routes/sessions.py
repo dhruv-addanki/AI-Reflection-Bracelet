@@ -36,6 +36,7 @@ async def upload_session(
             peak_hr=_parse_float(form.get("peak_hr")),
             baseline_delta=_parse_float(form.get("baseline_delta")),
             hr_quality=form.get("hr_quality"),
+            hr_log=_parse_list(form.get("hr_log")),
             battery_status=_parse_int(form.get("battery_status")),
             optional_raw_ppg=_parse_list(form.get("optional_raw_ppg")),
             source_type=str(form.get("source_type") or "mock"),
@@ -59,30 +60,36 @@ async def upload_session(
         peak_hr=data.peak_hr,
         baseline_delta=data.baseline_delta,
         hr_quality=data.hr_quality,
+        hr_log=data.hr_log,
         battery_status=data.battery_status,
         source_type=data.source_type,
     )
-    evaluation = task_queue.process_session_now(
-        payload=ProcessSessionPayload(
-            session_id=session.id,
-            user_id=data.user_id,
-            device_id=data.device_id,
-            timestamp=data.timestamp,
-            audio_path=saved_audio_path,
-            audio_file_url=data.audio_file_url,
-            transcript_override=data.transcript_override,
-            avg_hr=data.avg_hr,
-            peak_hr=data.peak_hr,
-            baseline_delta=data.baseline_delta,
-            hr_quality=data.hr_quality,
-            battery_status=data.battery_status,
-            optional_raw_ppg=data.optional_raw_ppg,
-            source_type=data.source_type,
-            mock_tone_labels=data.mock_tone_labels,
-            tone_preset=data.tone_preset,
-        ),
-        repository=repository,
-    )
+    try:
+        evaluation = task_queue.process_session_now(
+            payload=ProcessSessionPayload(
+                session_id=session.id,
+                user_id=data.user_id,
+                device_id=data.device_id,
+                timestamp=data.timestamp,
+                audio_path=saved_audio_path,
+                audio_file_url=data.audio_file_url,
+                transcript_override=data.transcript_override,
+                avg_hr=data.avg_hr,
+                peak_hr=data.peak_hr,
+                baseline_delta=data.baseline_delta,
+                hr_quality=data.hr_quality,
+                hr_log=data.hr_log,
+                battery_status=data.battery_status,
+                optional_raw_ppg=data.optional_raw_ppg,
+                source_type=data.source_type,
+                mock_tone_labels=data.mock_tone_labels,
+                tone_preset=data.tone_preset,
+            ),
+            repository=repository,
+        )
+    except ValueError as exc:
+        repository.mark_session_failed(session.id)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ApiEnvelope(data={"session": session, "evaluation": evaluation})
 
 

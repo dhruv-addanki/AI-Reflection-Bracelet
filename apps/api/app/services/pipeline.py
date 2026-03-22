@@ -7,9 +7,7 @@ from app.schemas.domain import ClipEvaluation
 from app.schemas.requests import ProcessSessionPayload
 from app.services.aggregation import AggregationService
 from app.services.gpt_synthesis import GptSynthesisService
-from app.services.heart_analysis import HeartAnalysisService
-from app.services.text_understanding import TextUnderstandingService
-from app.services.tone_analysis import ToneAnalysisService
+from app.services.reflect_v2 import ReflectV2Service
 from app.services.transcription import TranscriptionService
 from app.utils.time import start_of_week
 
@@ -17,9 +15,7 @@ from app.utils.time import start_of_week
 class SessionPipeline:
     def __init__(self) -> None:
         self.transcription = TranscriptionService()
-        self.tone = ToneAnalysisService()
-        self.heart = HeartAnalysisService()
-        self.text = TextUnderstandingService()
+        self.reflect_v2 = ReflectV2Service()
         self.synthesis = GptSynthesisService()
         self.aggregation = AggregationService()
 
@@ -56,25 +52,24 @@ class SessionPipeline:
             transcript_override=payload.transcript_override,
         )
         print("[PIPELINE] transcript result", transcript_result.model_dump())
-        tone_result = self.tone.analyze_tone(
+
+        reflect_execution = self.reflect_v2.analyze(
+            session_timestamp=payload.timestamp,
+            transcript_result=transcript_result,
             audio_path=payload.audio_path,
-            transcript=transcript_result.transcript,
-            tone_labels_override=payload.mock_tone_labels,
-            tone_preset=payload.tone_preset,
-        )
-        print("[PIPELINE] tone result", tone_result.model_dump())
-        heart_result = self.heart.analyze_heart(
+            transcript_override=payload.transcript_override,
+            hr_log=payload.hr_log,
             avg_hr=payload.avg_hr,
             peak_hr=payload.peak_hr,
             baseline_delta=payload.baseline_delta,
-            raw_ppg=payload.optional_raw_ppg,
+            tone_labels_override=payload.mock_tone_labels,
+            tone_preset=payload.tone_preset,
         )
+        tone_result = reflect_execution.tone_result
+        heart_result = reflect_execution.heart_result
+        text_result = reflect_execution.text_result
+        print("[PIPELINE] tone result", tone_result.model_dump())
         print("[PIPELINE] heart result", heart_result.model_dump())
-        text_result = self.text.analyze_transcript_text(
-            transcript=transcript_result.transcript,
-            user_context=user.model_dump(),
-            prior_context={},
-        )
         print("[PIPELINE] text understanding result", text_result.model_dump())
         synthesis_execution = self.synthesis.synthesize_clip_and_daily_update(
             input_payload={
@@ -89,6 +84,7 @@ class SessionPipeline:
                 },
                 "prior_day_context": prior_day_context,
             },
+            multimodal_summary=reflect_execution.multimodal_summary,
             tone_result=tone_result,
             heart_result=heart_result,
             text_result=text_result,
@@ -124,6 +120,14 @@ class SessionPipeline:
                 "tone_analysis": tone_result.model_dump(),
                 "heart_analysis": heart_result.model_dump(),
                 "text_understanding": text_result.model_dump(),
+                "pipeline_v2": {
+                    "ingestion": reflect_execution.ingestion,
+                    "preprocessing": reflect_execution.preprocessing,
+                    "window_records": [record.model_dump() for record in reflect_execution.window_records],
+                    "session_theme_scores": reflect_execution.session_theme_scores,
+                    "multimodal_summary": reflect_execution.multimodal_summary.model_dump(),
+                    "fallback_reasons": reflect_execution.fallback_reasons,
+                },
                 "synthesis": synthesis_result.model_dump(),
                 "synthesis_meta": {
                     "provider": synthesis_execution.provider,

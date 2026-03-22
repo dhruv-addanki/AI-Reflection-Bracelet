@@ -78,6 +78,7 @@ class Repository:
         peak_hr: float | None,
         baseline_delta: float | None,
         hr_quality: str | None,
+        hr_log: list[dict] | None,
         battery_status: int | None,
         source_type: str,
     ) -> RawSession:
@@ -93,11 +94,20 @@ class Repository:
             peak_hr=peak_hr,
             baseline_delta=baseline_delta,
             hr_quality=hr_quality,
+            hr_log=hr_log,
             battery_status=battery_status,
             upload_status="pending",
             source_type=source_type,
         )
         self.state.raw_sessions.append(session)
+        self._save()
+        return session
+
+    def mark_session_failed(self, session_id: str) -> RawSession | None:
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+        session.upload_status = "failed"
         self._save()
         return session
 

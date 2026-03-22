@@ -45,6 +45,7 @@ def seed_demo(
             peak_hr=float(item["peak_hr"]),
             baseline_delta=float(item["baseline_delta"]),
             hr_quality="seeded",
+            hr_log=None,
             battery_status=81,
             source_type="mock",
         )

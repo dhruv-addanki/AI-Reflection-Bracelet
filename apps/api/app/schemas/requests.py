@@ -29,6 +29,7 @@ class SessionUploadJsonRequest(BaseModel):
     peak_hr: float | None = None
     baseline_delta: float | None = None
     hr_quality: str | None = None
+    hr_log: list[dict[str, Any]] | None = None
     battery_status: int | None = None
     optional_raw_ppg: list[float] | None = None
     source_type: Literal["mock", "bracelet"] = "mock"
@@ -46,6 +47,7 @@ class SimulateSessionRequest(BaseModel):
     avg_hr: float | None = None
     peak_hr: float | None = None
     baseline_delta: float | None = None
+    hr_log: list[dict[str, Any]] | None = None
     battery_status: int | None = None
     audio_file_url: str | None = None
 
@@ -66,6 +68,7 @@ class ProcessSessionPayload(BaseModel):
     peak_hr: float | None = None
     baseline_delta: float | None = None
     hr_quality: str | None = None
+    hr_log: list[dict[str, Any]] | None = None
     battery_status: int | None = None
     optional_raw_ppg: list[float] | None = None
     source_type: Literal["mock", "bracelet"] = "mock"

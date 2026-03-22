@@ -42,25 +42,31 @@ def simulate_session(
         peak_hr=payload.peak_hr,
         baseline_delta=payload.baseline_delta,
         hr_quality="simulated",
+        hr_log=payload.hr_log,
         battery_status=payload.battery_status or 72,
         source_type="mock",
     )
-    evaluation = task_queue.process_session_now(
-        payload=ProcessSessionPayload(
-            session_id=session.id,
-            user_id=payload.user_id,
-            device_id=device_id,
-            timestamp=timestamp,
-            transcript_override=payload.transcript_override,
-            avg_hr=payload.avg_hr,
-            peak_hr=payload.peak_hr,
-            baseline_delta=payload.baseline_delta,
-            battery_status=payload.battery_status or 72,
-            source_type="mock",
-            tone_preset=payload.tone_preset,
-            mock_tone_labels=payload.tone_labels,
-            audio_file_url=payload.audio_file_url,
-        ),
-        repository=repository,
-    )
+    try:
+        evaluation = task_queue.process_session_now(
+            payload=ProcessSessionPayload(
+                session_id=session.id,
+                user_id=payload.user_id,
+                device_id=device_id,
+                timestamp=timestamp,
+                transcript_override=payload.transcript_override,
+                avg_hr=payload.avg_hr,
+                peak_hr=payload.peak_hr,
+                baseline_delta=payload.baseline_delta,
+                hr_log=payload.hr_log,
+                battery_status=payload.battery_status or 72,
+                source_type="mock",
+                tone_preset=payload.tone_preset,
+                mock_tone_labels=payload.tone_labels,
+                audio_file_url=payload.audio_file_url,
+            ),
+            repository=repository,
+        )
+    except ValueError as exc:
+        repository.mark_session_failed(session.id)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ApiEnvelope(data={"session": session, "evaluation": evaluation})

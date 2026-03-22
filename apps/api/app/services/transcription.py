@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from app.core.config import settings
-from app.schemas.domain import TranscriptResult
+from app.schemas.domain import TranscriptResult, TranscriptSegment, TranscriptWord
 
 try:
     from openai import OpenAI
@@ -67,14 +67,61 @@ class TranscriptionService:
                 response = self.client.audio.transcriptions.create(
                     model=settings.openai_transcription_model,
                     file=audio_file,
+                    response_format="verbose_json",
+                    timestamp_granularities=["word", "segment"],
+                )
+            transcript = response if isinstance(response, str) else getattr(response, "text", None)
+            if transcript and transcript.strip():
+                segments = []
+                words = []
+                response_segments = getattr(response, "segments", None) or []
+                for segment in response_segments:
+                    segment_words = []
+                    for word in getattr(segment, "words", None) or []:
+                        transcript_word = TranscriptWord(
+                            word=str(getattr(word, "word", "")).strip(),
+                            start=float(getattr(word, "start", 0.0)),
+                            end=float(getattr(word, "end", 0.0)),
+                            probability=float(getattr(word, "probability", 0.0)) if getattr(word, "probability", None) is not None else None,
+                        )
+                        if transcript_word.word:
+                            segment_words.append(transcript_word)
+                            words.append(transcript_word)
+                    segments.append(
+                        TranscriptSegment(
+                            start=float(getattr(segment, "start", 0.0)),
+                            end=float(getattr(segment, "end", 0.0)),
+                            text=str(getattr(segment, "text", "")).strip(),
+                            no_speech_prob=float(getattr(segment, "no_speech_prob", 0.0))
+                            if getattr(segment, "no_speech_prob", None) is not None
+                            else None,
+                            words=segment_words,
+                        )
+                    )
+                return TranscriptResult(
+                    transcript=transcript.strip(),
+                    source=f"openai_transcription:{settings.openai_transcription_model}",
+                    words=words,
+                    segments=segments,
+                    metadata={"response_format": "verbose_json", "timestamp_granularities": ["word", "segment"]},
+                )
+        except Exception as exc:  # pragma: no cover - network/runtime dependency
+            print("[TRANSCRIPTION] verbose OpenAI transcription failed", {"audio_path": str(audio_path), "error": str(exc)})
+            logger.warning("OpenAI transcription failed for %s: %s", audio_path, exc)
+        try:
+            with audio_path.open("rb") as audio_file:
+                response = self.client.audio.transcriptions.create(
+                    model=settings.openai_transcription_model,
+                    file=audio_file,
                 )
             transcript = response if isinstance(response, str) else getattr(response, "text", None)
             if transcript and transcript.strip():
                 return TranscriptResult(
                     transcript=transcript.strip(),
                     source=f"openai_transcription:{settings.openai_transcription_model}",
+                    metadata={"response_format": "text"},
                 )
         except Exception as exc:  # pragma: no cover - network/runtime dependency
-            print("[TRANSCRIPTION] openai transcription failed", {"audio_path": str(audio_path), "error": str(exc)})
-            logger.warning("OpenAI transcription failed for %s: %s", audio_path, exc)
+            print("[TRANSCRIPTION] plain OpenAI transcription failed", {"audio_path": str(audio_path), "error": str(exc)})
+            logger.warning("OpenAI fallback transcription failed for %s: %s", audio_path, exc)
         return None

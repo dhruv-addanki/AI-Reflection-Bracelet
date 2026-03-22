@@ -8,6 +8,7 @@ from typing import Any
 from app.core.config import settings
 from app.schemas.domain import (
     HeartAnalysisResult,
+    MultimodalSummary,
     SynthesisClipEvaluation,
     SynthesisDailyUpdate,
     SynthesisResult,
@@ -22,7 +23,7 @@ try:
 except ImportError:  # pragma: no cover - optional integration path
     OpenAI = None  # type: ignore[assignment]
 
-PROMPT_VERSION = "wellness_synthesis_v1"
+PROMPT_VERSION = "wellness_synthesis_v2"
 
 OPENAI_SYNTHESIS_SCHEMA = {
     "type": "object",
@@ -33,22 +34,9 @@ OPENAI_SYNTHESIS_SCHEMA = {
             "additionalProperties": False,
             "properties": {
                 "summary": {"type": "string"},
-                "primary_feelings": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "minItems": 1,
-                    "maxItems": 3,
-                },
-                "mixed_feelings": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "maxItems": 3,
-                },
-                "trigger_tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "maxItems": 5,
-                },
+                "primary_feelings": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
+                "mixed_feelings": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+                "trigger_tags": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
                 "heart_activation_note": {"type": "string"},
                 "support_suggestion": {"type": "string"},
                 "distress_intensity": {"type": "integer", "minimum": 1, "maximum": 10},
@@ -121,6 +109,7 @@ class GptSynthesisService:
     def synthesize_clip_and_daily_update(
         self,
         input_payload: dict[str, Any],
+        multimodal_summary: MultimodalSummary,
         tone_result: ToneAnalysisResult,
         heart_result: HeartAnalysisResult,
         text_result: TextUnderstandingResult,
@@ -132,11 +121,13 @@ class GptSynthesisService:
                 "openai_model": settings.openai_model,
                 "prompt_version": PROMPT_VERSION,
                 "transcript_preview": input_payload["transcript"][:160],
+                "dominant_emotions": multimodal_summary.dominant_emotions,
             },
         )
         if settings.openai_api_key and OpenAI is not None:
             synthesis = self._try_openai_structured_output(
                 input_payload=input_payload,
+                multimodal_summary=multimodal_summary,
                 tone_result=tone_result,
                 heart_result=heart_result,
                 text_result=text_result,
@@ -148,50 +139,54 @@ class GptSynthesisService:
                         "provider": synthesis.provider,
                         "model": synthesis.model,
                         "clip_summary": synthesis.result.clip_evaluation.summary,
-                        "reflection_prompt": synthesis.result.daily_summary_update.reflection_prompt,
                     },
                 )
                 return synthesis
 
-        fallback_reason = "OPENAI_API_KEY missing or OpenAI SDK unavailable."
+        fallback_reason = "OPENAI_API_KEY missing, OpenAI SDK unavailable, or structured synthesis failed."
         timestamp = input_payload["timestamp"]
         transcript = input_payload["transcript"]
-        feeling_counts = Counter(tone_result.primary_labels + text_result.candidate_mixed_feelings)
-        most_repeated_feeling = feeling_counts.most_common(1)[0][0]
-        summary = self._build_summary(transcript, tone_result.primary_labels)
-        support = self._build_support_suggestion(input_payload["support_style"], text_result, heart_result)
+        feeling_counts = Counter(multimodal_summary.dominant_emotions + tone_result.primary_labels + text_result.candidate_mixed_feelings)
+        most_repeated_feeling = feeling_counts.most_common(1)[0][0] if feeling_counts else "reflective"
+        summary = self._build_summary(transcript, multimodal_summary, tone_result.primary_labels)
+        support = self._build_support_suggestion(input_payload["support_style"], heart_result)
 
         fallback = SynthesisExecutionResult(
             result=SynthesisResult(
                 clip_evaluation=SynthesisClipEvaluation(
                     summary=summary,
-                    primary_feelings=tone_result.primary_labels[:2],
-                    mixed_feelings=text_result.candidate_mixed_feelings[:2],
-                    trigger_tags=text_result.trigger_tags[:3],
+                    primary_feelings=(multimodal_summary.dominant_emotions or tone_result.primary_labels)[:3],
+                    mixed_feelings=(multimodal_summary.mixed_feelings or text_result.candidate_mixed_feelings)[:3],
+                    trigger_tags=(multimodal_summary.repeated_triggers or text_result.trigger_tags)[:5],
                     heart_activation_note=heart_result.heart_activation_note,
                     support_suggestion=support,
-                    distress_intensity=min(10, max(1, heart_result.intensity + (2 if "overwhelmed" in tone_result.primary_labels else 0))),
+                    distress_intensity=self._distress_intensity(multimodal_summary, heart_result, tone_result),
                 ),
                 daily_summary_update=SynthesisDailyUpdate(
                     hardest_moment=f"It sounds like {summary.lower()}",
-                    calmest_moment="The steadier moment seems to come when you let yourself slow down or vent safely.",
+                    calmest_moment=(
+                        multimodal_summary.strongest_recovery_moment[:160]
+                        if multimodal_summary.strongest_recovery_moment
+                        else "The steadier moment seems to come when the pressure eases slightly."
+                    ),
                     most_repeated_feeling=most_repeated_feeling,
-                    one_thing_to_notice=f"A recurring theme seems to be {text_result.trigger_tags[0]}.",
+                    one_thing_to_notice=(
+                        f"A recurring theme seems to be {multimodal_summary.repeated_triggers[0]}."
+                        if multimodal_summary.repeated_triggers
+                        else "A recurring theme seems to be pressure building around too many demands."
+                    ),
                     timeline_blocks=[
                         TimelineBlock(
                             label=format_time_window(timestamp),
                             time_range=timestamp.strftime("%-I:%M %p"),
-                            feeling=tone_result.primary_labels[0],
-                            intensity=min(10, max(1, heart_result.intensity)),
+                            feeling=(multimodal_summary.dominant_emotions[0] if multimodal_summary.dominant_emotions else most_repeated_feeling),
+                            intensity=self._distress_intensity(multimodal_summary, heart_result, tone_result),
                         )
                     ],
-                    end_of_day_reflection=(
-                        "It sounds like you were carrying a mix of pressure and effort. "
-                        "Even with stress present, you still kept trying to move yourself toward steadier ground."
-                    ),
-                    reflection_prompt="What part of today felt heaviest, and what helped it loosen even a little?",
+                    end_of_day_reflection=self._build_reflection_paragraph(multimodal_summary),
+                    reflection_prompt="What felt most unresolved in this moment, and where did you notice even a slight shift?",
                     mixed_feeling_insight=(
-                        f"You may have been feeling {', '.join(text_result.candidate_mixed_feelings[:2])}."
+                        f"You may have been feeling {', '.join((multimodal_summary.mixed_feelings or text_result.candidate_mixed_feelings)[:2])}."
                     ),
                 ),
             ),
@@ -210,19 +205,14 @@ class GptSynthesisService:
         )
         return fallback
 
-    def _build_summary(self, transcript: str, labels: list[str]) -> str:
+    def _build_summary(self, transcript: str, multimodal_summary: MultimodalSummary, labels: list[str]) -> str:
         short = transcript.strip().split(".")[0]
         if len(short) > 108:
             short = f"{short[:105].rstrip()}..."
-        feeling = labels[0] if labels else "strained"
+        feeling = multimodal_summary.dominant_emotions[0] if multimodal_summary.dominant_emotions else (labels[0] if labels else "strained")
         return f"You sounded {feeling} while trying to talk through: {short}"
 
-    def _build_support_suggestion(
-        self,
-        support_style: str,
-        text_result: TextUnderstandingResult,
-        heart_result: HeartAnalysisResult,
-    ) -> str:
+    def _build_support_suggestion(self, support_style: str, heart_result: HeartAnalysisResult) -> str:
         base = {
             "gentle friend": "Try naming the next small thing instead of the whole pile.",
             "calm coach": "Shrink the moment to one immediate action you can finish.",
@@ -232,15 +222,56 @@ class GptSynthesisService:
             return f"{base} Your body also seemed activated, so slowing down first may help."
         return base
 
+    def _distress_intensity(
+        self,
+        multimodal_summary: MultimodalSummary,
+        heart_result: HeartAnalysisResult,
+        tone_result: ToneAnalysisResult,
+    ) -> int:
+        intensity = heart_result.intensity
+        if multimodal_summary.tone_mismatch_present:
+            intensity += 1
+        if tone_result.delivery_divergence and tone_result.delivery_divergence > 0.5:
+            intensity += 1
+        if multimodal_summary.dominant_emotions and multimodal_summary.dominant_emotions[0] in {"anxiety", "fear", "anger", "sadness", "grief"}:
+            intensity += 1
+        return max(1, min(10, intensity))
+
+    def _build_reflection_paragraph(self, multimodal_summary: MultimodalSummary) -> str:
+        parts = [
+            (
+                f"It sounds like this moment carried {' and '.join(multimodal_summary.dominant_emotions[:2])}."
+                if multimodal_summary.dominant_emotions
+                else "It sounds like this moment carried a lot of emotional weight."
+            ),
+            multimodal_summary.emotional_arc,
+            (
+                f"The biggest shift seemed to happen around {round(multimodal_summary.largest_shift.at_seconds)} seconds, "
+                f"near '{multimodal_summary.largest_shift.shift_window_text[:80]}'."
+                if multimodal_summary.largest_shift.shift_window_text
+                else ""
+            ),
+            (
+                "What felt unresolved: the pressure or question underneath the moment still seemed active."
+                if multimodal_summary.repeated_triggers
+                else "What felt unresolved: some pressure seemed to remain even after naming it."
+            ),
+        ]
+        if multimodal_summary.recovery_detected and multimodal_summary.strongest_recovery_moment:
+            parts.append("What helped most: there were signs of a partial recovery once the feeling was put into words.")
+        return " ".join(part for part in parts if part)
+
     def _try_openai_structured_output(
         self,
         input_payload: dict[str, Any],
+        multimodal_summary: MultimodalSummary,
         tone_result: ToneAnalysisResult,
         heart_result: HeartAnalysisResult,
         text_result: TextUnderstandingResult,
     ) -> SynthesisExecutionResult | None:
         user_prompt = self._build_user_prompt(
             input_payload=input_payload,
+            multimodal_summary=multimodal_summary,
             tone_result=tone_result,
             heart_result=heart_result,
             text_result=text_result,
@@ -252,14 +283,8 @@ class GptSynthesisService:
                 model=settings.openai_model,
                 store=False,
                 input=[
-                    {
-                        "role": "system",
-                        "content": self._build_system_prompt(),
-                    },
-                    {
-                        "role": "user",
-                        "content": user_prompt,
-                    },
+                    {"role": "system", "content": self._build_system_prompt()},
+                    {"role": "user", "content": user_prompt},
                 ],
                 text={
                     "format": {
@@ -286,28 +311,26 @@ class GptSynthesisService:
 
     def _build_system_prompt(self) -> str:
         return (
-            "You are generating app-ready emotional reflection outputs for a college-student mental wellness product. "
-            "Use only the provided signals. Keep language supportive, reflective, and non-clinical. "
-            "Do not diagnose, do not overstate certainty, and do not invent events, feelings, or physiology. "
-            "Prefer phrasing such as 'It sounds like...' and 'You may have been feeling...'. "
-            "Return data that is concise enough to populate a mobile app UI. "
-            "Mixed feelings should only be included when they are clearly supported by the transcript or processed signals. "
-            "Heart-rate commentary must stay descriptive and non-medical."
+            "You are a non-clinical wellness reflection assistant producing app-ready outputs for a college-student product. "
+            "You receive a structured multimodal summary derived from a spoken recording: transcript-based emotion signals, "
+            "vocal delivery observations, and heart-rate activation context. Use only the provided signals. "
+            "Keep language supportive, reflective, and non-clinical. Do not diagnose, do not overstate certainty, "
+            "and do not invent events, feelings, or physiology. Prefer phrases like 'It sounds like...' and "
+            "'You may have been feeling...'. If confidence notes are present, hedge or omit those observations. "
+            "If heart-rate data was unreliable, do not make heart claims. Do not give advice or recommendations."
         )
 
     def _build_user_prompt(
         self,
         input_payload: dict[str, Any],
+        multimodal_summary: MultimodalSummary,
         tone_result: ToneAnalysisResult,
         heart_result: HeartAnalysisResult,
         text_result: TextUnderstandingResult,
     ) -> str:
         payload = {
             "prompt_version": PROMPT_VERSION,
-            "task": (
-                "Synthesize one clip evaluation and a daily summary update candidate. "
-                "The output must follow the provided JSON schema exactly."
-            ),
+            "task": "Synthesize one clip evaluation and a daily summary update candidate. The output must follow the JSON schema exactly.",
             "user_context": input_payload.get("user_context", {}),
             "session_context": {
                 "timestamp": input_payload["timestamp"].isoformat(),
@@ -315,6 +338,7 @@ class GptSynthesisService:
                 "support_style": input_payload["support_style"],
                 "prior_day_context": input_payload.get("prior_day_context", {}),
             },
+            "multimodal_summary": multimodal_summary.model_dump(),
             "processed_signals": {
                 "tone_analysis": tone_result.model_dump(),
                 "heart_analysis": heart_result.model_dump(),
@@ -326,6 +350,7 @@ class GptSynthesisService:
                 "Do not use diagnosis or treatment language.",
                 "If evidence is weak, stay modest and use softer wording.",
                 "Reflection prompts should be open-ended and emotionally safe.",
+                "The end_of_day_reflection should read like a short 4-5 sentence reflection grounded in the structured summary.",
             ],
         }
         return json.dumps(payload, default=str)
