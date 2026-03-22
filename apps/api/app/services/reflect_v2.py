@@ -183,7 +183,11 @@ class ReflectV2Service:
             "[REFLECT_V2] window build",
             {
                 "window_count": len(window_contexts),
-                "alignment_mode": "timestamp_aligned" if transcript_result.words else "session_level_approximate",
+                "alignment_mode": (
+                    "timestamp_aligned"
+                    if transcript_result.words
+                    else ("segment_aligned" if transcript_result.segments else "session_level_approximate")
+                ),
                 "audio_duration_sec": audio.trimmed_duration_sec,
                 "hr_sample_count": len(hr_artifacts["samples"]),
             },
@@ -275,8 +279,13 @@ class ReflectV2Service:
                     "sample_count": len(hr_artifacts["samples"]),
                 },
                 "text": {
-                    "alignment_mode": "timestamp_aligned" if transcript_result.words else "session_level_approximate",
+                    "alignment_mode": (
+                        "timestamp_aligned"
+                        if transcript_result.words
+                        else ("segment_aligned" if transcript_result.segments else "session_level_approximate")
+                    ),
                     "has_word_timestamps": bool(transcript_result.words),
+                    "has_segment_timestamps": bool(transcript_result.segments),
                 },
             },
             fallback_reasons=fallback_reasons,
@@ -480,12 +489,14 @@ class ReflectV2Service:
         hr_samples: list[HrSample],
     ) -> list[dict[str, Any]]:
         words = transcript_result.words
+        segments = transcript_result.segments
         hr_duration = 0.0
         if hr_samples:
             hr_duration = max(0.0, (hr_samples[-1].t - session_timestamp_ms) / 1000)
         session_duration = max(
             audio.trimmed_duration_sec,
             words[-1].end if words else 0.0,
+            segments[-1].end if segments else 0.0,
             hr_duration,
             15.0 if transcript_result.transcript.strip() else 0.0,
         )
@@ -500,6 +511,26 @@ class ReflectV2Service:
             session_timestamp_ms=session_timestamp_ms,
             hr_samples=hr_samples,
         )
+
+        if not words and segments:
+            for context in contexts:
+                record = context["record"]
+                start = record.t_start
+                end = record.t_end
+                window_segments = [segment for segment in segments if segment.start < end and segment.end >= start]
+                text = " ".join(segment.text for segment in window_segments if segment.text.strip()).strip()
+                if not text and start <= segments[0].start and transcript_result.transcript.strip():
+                    text = transcript_result.transcript.strip()
+                segment_word_count = len(text.split())
+                no_speech_scores = [segment.no_speech_prob for segment in window_segments if segment.no_speech_prob is not None]
+                record.text = text
+                record.word_count = segment_word_count
+                record.text_confidence = None
+                record.no_speech_prob = float(np.mean(no_speech_scores)) if no_speech_scores else None
+                record.flags.low_information = segment_word_count < 10
+                record.flags.low_transcript = True
+                context["text_alignment_mode"] = "segment_aligned"
+            return contexts
 
         if not words:
             transcript_text = transcript_result.transcript.strip()
@@ -819,12 +850,13 @@ class ReflectV2Service:
             results = list(executor.map(lambda item: self._run_ser_window(classifier, item[1]["audio_slice"]), eligible))
 
         for (index, _), result in zip(eligible, results):
-            if not result:
+            if not result or result.get("error"):
                 print(
                     "[REFLECT_V2] ser window failed",
                     {
                         "t_start": window_contexts[index]["record"].t_start,
                         "t_end": window_contexts[index]["record"].t_end,
+                        "error": None if not result else result.get("error"),
                     },
                 )
                 continue
@@ -856,18 +888,26 @@ class ReflectV2Service:
         try:
             waveform = torch.tensor(audio_slice, dtype=torch.float32).unsqueeze(0)
             out_prob, _, _, _ = classifier.classify_batch(waveform)
-            probabilities = torch.exp(out_prob[0]).detach().cpu().numpy()
-            label_map = getattr(classifier.hparams.label_encoder, "ind2lab", None) or {}
-            scores = {
-                str(label_map.get(index, index)): round(float(prob), 4)
-                for index, prob in enumerate(probabilities)
-            }
+            probabilities = out_prob[0].detach().cpu().numpy()
+            label_list = getattr(classifier, "labels", None)
+            if label_list:
+                scores = {
+                    str(label_list[index] if index < len(label_list) else index): round(float(prob), 4)
+                    for index, prob in enumerate(probabilities)
+                }
+            else:
+                hparams = getattr(classifier, "hparams", None)
+                label_map = getattr(getattr(hparams, "label_encoder", None), "ind2lab", None) or {}
+                scores = {
+                    str(label_map.get(index, index)): round(float(prob), 4)
+                    for index, prob in enumerate(probabilities)
+                }
             normalized = {self._normalize_ser_label(label): score for label, score in scores.items()}
             ser_valence = round(sum(score * SER_VALENCE.get(label, 0.0) for label, score in normalized.items()), 4)
             ser_arousal = round(normalized.get("angry", 0.0) + normalized.get("happy", 0.0), 4)
             return {"scores": normalized, "ser_valence": ser_valence, "ser_arousal": ser_arousal}
-        except Exception:
-            return None
+        except Exception as exc:
+            return {"error": str(exc)}
 
     def _apply_hr_features(self, window_contexts: list[dict[str, Any]]) -> None:
         means: list[float | None] = []
@@ -1021,8 +1061,11 @@ class ReflectV2Service:
         if window_records and (sum(1 for record in window_records if record.flags.low_information) / len(window_records)) > 0.30:
             confidence_notes.append("significant portions of the session had insufficient speech for analysis")
         if not transcript_result.words:
-            confidence_notes.append("text analysis stayed session-level because transcript timestamps were unavailable")
-            confidence_notes.append("temporal transcript alignment was limited; audio and heart-rate windows are stronger than text timing")
+            if transcript_result.segments:
+                confidence_notes.append("text timing used coarse transcript segments rather than word-level timestamps")
+            else:
+                confidence_notes.append("text analysis stayed session-level because transcript timestamps were unavailable")
+                confidence_notes.append("temporal transcript alignment was limited; audio and heart-rate windows are stronger than text timing")
 
         arc_text = self._describe_arc(classifiable, smoothed)
         acoustic_observations = self._summarize_acoustics(window_records)
