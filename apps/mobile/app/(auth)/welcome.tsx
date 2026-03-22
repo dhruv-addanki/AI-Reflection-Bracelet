@@ -15,13 +15,13 @@ export default function WelcomeScreen() {
         <Text style={styles.kicker}>Voice-first reflection</Text>
         <Text style={styles.title}>Talk through your day and get a calmer read on what it held.</Text>
         <Text style={styles.body}>
-          Short voice notes become daily reflection, entry-level insight, and longer patterns without needing the hardware to be built yet.
+          Short voice notes become daily reflection, entry-level insight, and longer patterns grounded in bracelet sync data.
         </Text>
       </View>
 
       <SectionCard title="What the bracelet is for">
         <Text style={styles.body}>It listens to brief check-ins, adds heart-rate context, and turns those moments into supportive summaries.</Text>
-        <Text style={styles.body}>For now, you can pair a mock bracelet and simulate uploads to demo the full product flow.</Text>
+        <Text style={styles.body}>If a live note is unavailable, the app can use an uploaded fallback audio file while preserving the same reflection flow.</Text>
       </SectionCard>
 
       <WarmButton label="Start onboarding" onPress={() => router.push("/onboarding")} />

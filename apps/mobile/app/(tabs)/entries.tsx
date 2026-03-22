@@ -83,8 +83,8 @@ export default function ReflectionsScreen() {
       {!todaySummary ? (
         <EmptyState
           title="No reflection prompt yet"
-          description="Today’s question appears after at least one processed voice note gives the model enough context to ask something useful."
-          actionLabel="Simulate session"
+          description="Today’s question appears after at least one synced voice note gives the model enough context to ask something useful."
+          actionLabel="Sync notes"
           onAction={() => router.push("/simulate")}
         />
       ) : (

@@ -19,7 +19,7 @@ export function EntryCard({
     <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.header}>
         <Text style={styles.time}>{formatClock(session.startedAt)}</Text>
-        <Text style={styles.meta}>{session.sourceType}</Text>
+        <Text style={styles.meta}>{session.sourceType === "bracelet" ? "bracelet sync" : "note sync"}</Text>
       </View>
       <Text style={styles.summary}>
         {evaluation?.oneLineSummary ?? "A processed entry will appear here once the session is analyzed."}

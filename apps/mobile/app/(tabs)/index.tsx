@@ -49,7 +49,7 @@ export default function HomeScreen() {
       <ScreenContainer>
         <EmptyState
           title="No bracelet paired yet"
-          description="Pair the mock bracelet first so today’s homepage can fill with summaries, voice-note moments, and reflection prompts."
+          description="Pair the bracelet first so today’s homepage can fill with summaries, voice-note moments, and reflection prompts."
           actionLabel="Pair bracelet"
           onAction={() => router.push("/pair")}
         />
@@ -74,8 +74,8 @@ export default function HomeScreen() {
       {!summary ? (
         <EmptyState
           title="No summary yet"
-          description="Simulate or upload a few bracelet-style voice notes and the homepage will turn into a daily recap with emotions, causes, and a timeline of today’s recordings."
-          actionLabel="Simulate session"
+          description="Sync a voice note from the bracelet and the homepage will turn into a daily recap with emotions, causes, and a timeline of today’s recordings."
+          actionLabel="Sync notes"
           onAction={() => router.push("/simulate")}
         />
       ) : (
@@ -132,7 +132,7 @@ export default function HomeScreen() {
 
           <ReflectionPromptCard prompt={summary.reflectionPrompt} />
 
-          <WarmButton label="Write today’s reflection" onPress={() => router.push("/entries")} />
+          <WarmButton label="Sync notes" onPress={() => router.push("/simulate")} />
         </>
       )}
     </ScreenContainer>

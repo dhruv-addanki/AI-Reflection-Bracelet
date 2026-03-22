@@ -58,7 +58,7 @@ export default function ProfileScreen() {
       <SectionCard title="Demo controls">
         <View style={styles.actions}>
           <WarmButton label="Pair bracelet" onPress={() => router.push("/pair")} />
-          <WarmButton label="Simulate session" onPress={() => router.push("/simulate")} variant="ghost" />
+          <WarmButton label="Sync notes" onPress={() => router.push("/simulate")} variant="ghost" />
           <WarmButton label="Generate demo data" onPress={() => seedMutation.mutate()} loading={seedMutation.isPending} variant="ghost" />
           <WarmButton
             label="Clear local session"

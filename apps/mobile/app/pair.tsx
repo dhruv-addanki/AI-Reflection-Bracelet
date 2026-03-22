@@ -53,7 +53,7 @@ export default function PairScreen() {
     <ScreenContainer>
       <View style={styles.hero}>
         <Text style={styles.title}>Pair your bracelet</Text>
-        <Text style={styles.subtitle}>This is a fake pairing flow for now, but it creates the same device record the hardware will use later.</Text>
+        <Text style={styles.subtitle}>Connect your bracelet so voice notes and heart context can sync into the app throughout the day.</Text>
       </View>
 
       <SectionCard title="Connection status">
@@ -62,7 +62,7 @@ export default function PairScreen() {
           <Text style={styles.statusText}>{copyForState(state, nickname)}</Text>
         </View>
         <Pressable style={styles.nicknameBox} onPress={() => setNickname((current) => (current === "Campus Loop" ? "Studio Ember" : "Campus Loop"))}>
-          <Text style={styles.nicknameLabel}>Tap to rename demo device</Text>
+          <Text style={styles.nicknameLabel}>Tap to rename bracelet</Text>
           <Text style={styles.nicknameValue}>{nickname}</Text>
         </Pressable>
       </SectionCard>
@@ -85,7 +85,7 @@ function copyForState(state: PairState, nickname: string) {
     case "connected":
       return `Connected to ${nickname}`;
     default:
-      return "Ready to start a mock scan.";
+      return "Ready to search for your bracelet.";
   }
 }
 
