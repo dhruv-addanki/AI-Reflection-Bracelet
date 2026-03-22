@@ -90,7 +90,7 @@ async def upload_session(
     except ValueError as exc:
         repository.mark_session_failed(session.id)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return ApiEnvelope(data={"session": session, "evaluation": evaluation})
+    return ApiEnvelope(data={"session": session.model_dump(), "evaluation": evaluation.model_dump()})
 
 
 @router.get("/today", response_model=ApiEnvelope)
@@ -101,7 +101,10 @@ def list_today_sessions(user_id: str, date: str | None = None, repository: Repos
     sessions = repository.list_sessions_for_date(user_id, target_date)
     evaluations = {evaluation.session_id: evaluation for evaluation in repository.list_clip_evaluations(session.id for session in sessions)}
     data = [
-        {"session": session, "evaluation": evaluations.get(session.id)}
+        {
+            "session": session.model_dump(),
+            "evaluation": evaluations.get(session.id).model_dump() if evaluations.get(session.id) is not None else None,
+        }
         for session in sorted(sessions, key=lambda item: item.started_at, reverse=True)
     ]
     return ApiEnvelope(data=data)
@@ -112,7 +115,7 @@ def get_session(session_id: str, repository: Repository = Depends(get_repository
     detail = repository.get_session_detail(session_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return ApiEnvelope(data=detail)
+    return ApiEnvelope(data=detail.model_dump())
 
 
 def _parse_float(value: object) -> float | None:

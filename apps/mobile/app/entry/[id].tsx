@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 
+import { WarmButton } from "../../src/components/WarmButton";
 import { getSession } from "../../src/lib/api";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { SectionCard } from "../../src/components/SectionCard";
@@ -10,6 +11,7 @@ import { TonePill } from "../../src/components/TonePill";
 import { theme } from "../../src/theme";
 
 export default function EntryDetailScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
   const sessionId = params.id;
   const query = useQuery({
@@ -19,9 +21,18 @@ export default function EntryDetailScreen() {
   });
 
   const detail = query.data;
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/entries");
+  };
 
   return (
     <ScreenContainer>
+      <WarmButton label="Back to entries" onPress={handleBack} variant="ghost" style={styles.backButton} />
       <Text style={styles.title}>Entry detail</Text>
       {!detail ? (
         <Text style={styles.body}>Loading session...</Text>
@@ -59,6 +70,9 @@ export default function EntryDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  backButton: {
+    alignSelf: "flex-start"
+  },
   title: {
     color: theme.colors.text,
     fontFamily: theme.typefaces.heading,

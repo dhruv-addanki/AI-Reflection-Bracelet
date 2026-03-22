@@ -179,9 +179,39 @@ class ReflectV2Service:
             session_timestamp_ms=int(session_timestamp.timestamp() * 1000),
             hr_samples=hr_artifacts["samples"],
         )
+        print(
+            "[REFLECT_V2] window build",
+            {
+                "window_count": len(window_contexts),
+                "alignment_mode": "timestamp_aligned" if transcript_result.words else "session_level_approximate",
+                "audio_duration_sec": audio.trimmed_duration_sec,
+                "hr_sample_count": len(hr_artifacts["samples"]),
+            },
+        )
         if not window_contexts:
             window_contexts = self._fallback_windows(transcript_result.transcript)
             fallback_reasons.append("window_fallback")
+            print("[REFLECT_V2] window fallback applied", {"reason": "no_window_contexts"})
+
+        print(
+            "[REFLECT_V2] ingestion/preprocessing",
+            {
+                "ingestion_warnings": ingestion["warnings"],
+                "audio": {
+                    "duration_sec": audio.duration_sec,
+                    "trimmed_duration_sec": audio.trimmed_duration_sec,
+                    "clipping_ratio": audio.clipping_ratio,
+                    "mean_rms": audio.mean_rms,
+                    "denoise_applied": audio.denoise_applied,
+                    "trim_offsets": audio.trim_offsets,
+                },
+                "hr": {
+                    "used_proxy": hr_artifacts["used_proxy"],
+                    "sample_count": len(hr_artifacts["samples"]),
+                    "warnings": hr_artifacts["warnings"],
+                },
+            },
+        )
 
         self._apply_go_emotions(window_contexts)
         session_theme_scores = self._score_session_themes(transcript_result.transcript)
@@ -189,6 +219,24 @@ class ReflectV2Service:
         self._apply_acoustic_features(window_contexts)
         self._apply_ser(window_contexts)
         self._apply_hr_features(window_contexts)
+
+        print(
+            "[REFLECT_V2] window records",
+            [
+                {
+                    "index": index,
+                    "t_start": context["record"].t_start,
+                    "t_end": context["record"].t_end,
+                    "word_count": context["record"].word_count,
+                    "has_text": bool(context["record"].text),
+                    "text_alignment_mode": context.get("text_alignment_mode"),
+                    "audio_samples": len(context["audio_slice"]) if context["audio_slice"] is not None else 0,
+                    "hr_samples": len(context["hr_samples"]),
+                    "flags": context["record"].flags.model_dump(),
+                }
+                for index, context in enumerate(window_contexts)
+            ],
+        )
 
         window_records = [context["record"] for context in window_contexts]
         multimodal_summary = self._summarize_session(
@@ -198,6 +246,7 @@ class ReflectV2Service:
             window_records=window_records,
             session_theme_scores=session_theme_scores,
         )
+        print("[REFLECT_V2] multimodal summary", multimodal_summary.model_dump())
 
         tone_result = self._build_tone_result(window_records, multimodal_summary, tone_labels_override, tone_preset)
         heart_result = self._build_heart_result(window_records, multimodal_summary, hr_artifacts["used_proxy"])
@@ -224,6 +273,10 @@ class ReflectV2Service:
                     "used_proxy": hr_artifacts["used_proxy"],
                     "warning_count": len(hr_artifacts["warnings"]),
                     "sample_count": len(hr_artifacts["samples"]),
+                },
+                "text": {
+                    "alignment_mode": "timestamp_aligned" if transcript_result.words else "session_level_approximate",
+                    "has_word_timestamps": bool(transcript_result.words),
                 },
             },
             fallback_reasons=fallback_reasons,
@@ -255,11 +308,23 @@ class ReflectV2Service:
                 warnings=["Audio libraries unavailable; skipping waveform analysis."],
             )
 
-        waveform, sample_rate = sf.read(audio_path, always_2d=False)
-        waveform = np.asarray(waveform, dtype=np.float32)
-        if waveform.ndim > 1:
-            waveform = waveform.mean(axis=1)
         warnings: list[str] = []
+        try:
+            waveform, sample_rate = self._load_audio_file(audio_path)
+        except Exception as exc:
+            warnings.append(f"Audio decoding fallback failed: {exc}")
+            return AudioArtifacts(
+                waveform=None,
+                sample_rate=16000,
+                duration_sec=0.0,
+                trimmed_duration_sec=0.0,
+                clipping_ratio=0.0,
+                mean_rms=0.0,
+                denoise_applied=False,
+                trim_offsets=(0.0, 0.0),
+                warnings=warnings,
+            )
+
         if sample_rate != 16000:
             warnings.append(f"Expected 16kHz mono audio; resampled from {sample_rate}Hz.")
             waveform = librosa.resample(waveform, orig_sr=sample_rate, target_sr=16000)
@@ -303,6 +368,27 @@ class ReflectV2Service:
             trim_offsets=trim_offsets,
             warnings=warnings,
         )
+
+    def _load_audio_file(self, audio_path: str) -> tuple[np.ndarray, int]:
+        waveform = None
+        sample_rate = None
+        soundfile_error = None
+
+        try:
+            waveform, sample_rate = sf.read(audio_path, always_2d=False)
+            waveform = np.asarray(waveform, dtype=np.float32)
+            if waveform.ndim > 1:
+                waveform = waveform.mean(axis=1)
+            return waveform, int(sample_rate)
+        except Exception as exc:
+            soundfile_error = exc
+
+        # librosa can fall back to audioread/ffmpeg for formats like .m4a.
+        waveform, sample_rate = librosa.load(audio_path, sr=None, mono=True)
+        waveform = np.asarray(waveform, dtype=np.float32)
+        if len(waveform) == 0 and soundfile_error is not None:
+            raise RuntimeError(f"{soundfile_error}")
+        return waveform, int(sample_rate)
 
     def _prepare_hr_log(
         self,
@@ -394,50 +480,101 @@ class ReflectV2Service:
         hr_samples: list[HrSample],
     ) -> list[dict[str, Any]]:
         words = transcript_result.words
+        hr_duration = 0.0
+        if hr_samples:
+            hr_duration = max(0.0, (hr_samples[-1].t - session_timestamp_ms) / 1000)
         session_duration = max(
             audio.trimmed_duration_sec,
             words[-1].end if words else 0.0,
+            hr_duration,
             15.0 if transcript_result.transcript.strip() else 0.0,
         )
         if session_duration <= 0:
             return []
 
-        if not words:
-            return self._fallback_windows(transcript_result.transcript, session_duration=session_duration)
+        contexts = self._build_time_windows(
+            session_duration=session_duration,
+            transcript=transcript_result.transcript,
+            waveform=audio.waveform,
+            sample_rate=audio.sample_rate,
+            session_timestamp_ms=session_timestamp_ms,
+            hr_samples=hr_samples,
+        )
 
-        contexts: list[dict[str, Any]] = []
-        window_length = 15.0
-        stride = 7.0
-        start = 0.0
-        while start < session_duration:
-            end = min(start + window_length, session_duration)
+        if not words:
+            transcript_text = transcript_result.transcript.strip()
+            transcript_word_count = len(transcript_text.split())
+            for index, context in enumerate(contexts):
+                record = context["record"]
+                if index == 0 and transcript_text:
+                    record.text = transcript_text
+                    record.word_count = transcript_word_count
+                    record.flags.low_information = transcript_word_count < 10
+                else:
+                    record.text = ""
+                    record.word_count = 0
+                    record.flags.low_information = True
+                record.text_confidence = None
+                record.no_speech_prob = None
+                record.flags.low_transcript = True
+                context["text_alignment_mode"] = "session_level_approximate"
+            return contexts
+
+        for context in contexts:
+            record = context["record"]
+            start = record.t_start
+            end = record.t_end
             window_words = [word for word in words if word.start < end and word.end >= start]
             window_segments = [
                 segment for segment in transcript_result.segments if segment.start < end and segment.end >= start
             ]
-            text = " ".join(word.word for word in window_words).strip() or transcript_result.transcript.strip()
+            record.text = " ".join(word.word for word in window_words).strip()
+            record.word_count = len(window_words)
             word_probs = [word.probability for word in window_words if word.probability is not None]
-            mean_word_probability = float(np.mean(word_probs)) if word_probs else None
+            record.text_confidence = float(np.mean(word_probs)) if word_probs else None
             no_speech_scores = [segment.no_speech_prob for segment in window_segments if segment.no_speech_prob is not None]
-            no_speech_prob = float(np.mean(no_speech_scores)) if no_speech_scores else None
+            record.no_speech_prob = float(np.mean(no_speech_scores)) if no_speech_scores else None
+            record.flags.low_information = len(window_words) < 10
+            record.flags.low_transcript = (record.text_confidence or 1.0) < 0.65
+            context["text_alignment_mode"] = "timestamp_aligned"
+        return contexts
+
+    def _build_time_windows(
+        self,
+        *,
+        session_duration: float,
+        transcript: str,
+        waveform: np.ndarray | None,
+        sample_rate: int,
+        session_timestamp_ms: int,
+        hr_samples: list[HrSample],
+    ) -> list[dict[str, Any]]:
+        contexts: list[dict[str, Any]] = []
+        window_length = 15.0
+        stride = 7.0
+        start = 0.0
+        transcript_text = transcript.strip()
+        transcript_word_count = len(transcript_text.split())
+        while start < session_duration:
+            end = min(start + window_length, session_duration)
             audio_slice = None
-            if audio.waveform is not None and audio.sample_rate:
-                start_index = max(0, int(start * audio.sample_rate))
-                end_index = max(start_index + 1, int(end * audio.sample_rate))
-                audio_slice = audio.waveform[start_index:end_index]
+            if waveform is not None and sample_rate:
+                start_index = max(0, int(start * sample_rate))
+                end_index = max(start_index + 1, int(end * sample_rate))
+                audio_slice = waveform[start_index:end_index]
             hr_window = [
                 sample for sample in hr_samples if start <= (sample.t - session_timestamp_ms) / 1000 <= end
             ]
             record = WindowRecord(
                 t_start=round(start, 2),
                 t_end=round(end, 2),
-                text=text,
-                word_count=len(window_words),
-                text_confidence=mean_word_probability,
-                no_speech_prob=no_speech_prob,
+                text=transcript_text if len(contexts) == 0 else "",
+                word_count=transcript_word_count if len(contexts) == 0 else 0,
+                text_confidence=None,
+                no_speech_prob=None,
                 flags=WindowFlags(
-                    low_information=len(window_words) < 10,
-                    low_transcript=(mean_word_probability or 1.0) < 0.65,
+                    low_information=(transcript_word_count if len(contexts) == 0 else 0) < 10,
+                    low_transcript=True,
                 ),
             )
             contexts.append({"record": record, "audio_slice": audio_slice, "hr_samples": hr_window})
@@ -461,8 +598,12 @@ class ReflectV2Service:
 
     def _apply_go_emotions(self, window_contexts: list[dict[str, Any]]) -> None:
         classifier = self.models.get_go_emotions()
-        texts = [context["record"].text for context in window_contexts if not context["record"].flags.low_information]
+        texts = [context["record"].text for context in window_contexts if context["record"].text and not context["record"].flags.low_information]
         if classifier is None or not texts:
+            print(
+                "[REFLECT_V2] go_emotions skipped",
+                {"classifier_available": classifier is not None, "eligible_text_windows": len(texts)},
+            )
             return
 
         raw_outputs = classifier(texts)
@@ -491,24 +632,56 @@ class ReflectV2Service:
                 4,
             )
             record.activation_magnitude = round(sum(record.go_emotions.values()), 4)
+            print(
+                "[REFLECT_V2] go_emotions window",
+                {
+                    "t_start": record.t_start,
+                    "t_end": record.t_end,
+                    "text_preview": record.text[:120],
+                    "active_labels": record.go_emotions,
+                    "text_valence": record.text_valence,
+                    "activation_magnitude": record.activation_magnitude,
+                },
+            )
 
     def _score_session_themes(self, transcript: str) -> dict[str, float]:
         classifier = self.models.get_zero_shot()
         if classifier is None or not transcript.strip():
+            print(
+                "[REFLECT_V2] session themes skipped",
+                {"classifier_available": classifier is not None, "has_transcript": bool(transcript.strip())},
+            )
             return {}
         result = classifier(transcript, candidate_labels=TRIGGER_LABELS, multi_label=True)
-        return {
+        scores = {
             label: round(float(score), 4)
             for label, score in zip(result.get("labels", []), result.get("scores", []))
         }
+        print("[REFLECT_V2] session themes", scores)
+        return scores
 
     def _apply_trigger_scores(self, window_contexts: list[dict[str, Any]], session_theme_scores: dict[str, float]) -> None:
         classifier = self.models.get_zero_shot()
         if classifier is None:
+            print("[REFLECT_V2] trigger scoring skipped", {"classifier_available": False})
             return
-        flagged = sorted(window_contexts, key=lambda item: item["record"].activation_magnitude, reverse=True)[:3]
-        texts = [context["record"].text for context in flagged if context["record"].text.strip()]
+        flagged = [
+            context
+            for context in sorted(window_contexts, key=lambda item: item["record"].activation_magnitude, reverse=True)
+            if context["record"].text.strip() and context.get("text_alignment_mode") == "timestamp_aligned"
+        ][:3]
+        texts = [context["record"].text for context in flagged]
         if not texts:
+            top_session_trigger = [label for label, score in session_theme_scores.items() if score > 0.40][:3]
+            if not top_session_trigger and session_theme_scores:
+                top_session_trigger = [max(session_theme_scores, key=session_theme_scores.get)]
+            for context in window_contexts:
+                if not context["record"].trigger_labels:
+                    context["record"].trigger_labels = {label: session_theme_scores.get(label, 0.0) for label in top_session_trigger}
+            print(
+                "[REFLECT_V2] trigger scoring session-only",
+                {"top_session_triggers": top_session_trigger, "window_count": len(window_contexts)},
+            )
             return
         results = classifier(texts, candidate_labels=TRIGGER_LABELS, multi_label=True)
         if isinstance(results, dict):
@@ -527,6 +700,14 @@ class ReflectV2Service:
             if not active and result.get("labels"):
                 active = {result["labels"][0]: round(float(result["scores"][0]), 4)}
             context["record"].trigger_labels = active
+            print(
+                "[REFLECT_V2] trigger window",
+                {
+                    "t_start": context["record"].t_start,
+                    "t_end": context["record"].t_end,
+                    "trigger_labels": active,
+                },
+            )
 
         top_session_trigger = [label for label, score in session_theme_scores.items() if score > 0.40][:3]
         if not top_session_trigger and session_theme_scores:
@@ -534,9 +715,11 @@ class ReflectV2Service:
         for context in window_contexts:
             if not context["record"].trigger_labels:
                 context["record"].trigger_labels = {label: session_theme_scores.get(label, 0.0) for label in top_session_trigger}
+        print("[REFLECT_V2] trigger scoring complete", {"top_session_triggers": top_session_trigger})
 
     def _apply_acoustic_features(self, window_contexts: list[dict[str, Any]]) -> None:
         if librosa is None:
+            print("[REFLECT_V2] acoustic features skipped", {"librosa_available": False})
             return
         pitch_stds: list[float | None] = []
         energy_means: list[float | None] = []
@@ -548,6 +731,14 @@ class ReflectV2Service:
                 pitch_stds.append(None)
                 energy_means.append(None)
                 pause_ratios.append(None)
+                print(
+                    "[REFLECT_V2] acoustic window skipped",
+                    {
+                        "t_start": record.t_start,
+                        "t_end": record.t_end,
+                        "audio_samples": len(audio_slice) if audio_slice is not None else 0,
+                    },
+                )
                 continue
             try:
                 f0, voiced_flag, voiced_probs = librosa.pyin(audio_slice, fmin=80, fmax=400, sr=16000)
@@ -567,10 +758,25 @@ class ReflectV2Service:
                 pitch_stds.append(pitch_std)
                 energy_means.append(energy_mean)
                 pause_ratios.append(pause_ratio)
+                print(
+                    "[REFLECT_V2] acoustic window",
+                    {
+                        "t_start": record.t_start,
+                        "t_end": record.t_end,
+                        "pitch_mean": record.pitch_mean,
+                        "pitch_std": record.pitch_std,
+                        "energy_mean": record.energy_mean,
+                        "pause_ratio": record.pause_ratio,
+                    },
+                )
             except Exception:
                 pitch_stds.append(None)
                 energy_means.append(None)
                 pause_ratios.append(None)
+                print(
+                    "[REFLECT_V2] acoustic window failed",
+                    {"t_start": record.t_start, "t_end": record.t_end},
+                )
 
         pitch_z = self._zscore(pitch_stds)
         energy_z = self._zscore(energy_means)
@@ -581,10 +787,22 @@ class ReflectV2Service:
                 "pitch_variability": self._bucketize(pitch_z[index]),
                 "pause_density": self._pause_bucket(context["record"].pause_ratio),
             }
+            print(
+                "[REFLECT_V2] acoustic observations window",
+                {
+                    "t_start": context["record"].t_start,
+                    "t_end": context["record"].t_end,
+                    "observations": context["record"].acoustic_observations,
+                },
+            )
 
     def _apply_ser(self, window_contexts: list[dict[str, Any]]) -> None:
         classifier = self.models.get_ser()
         if classifier is None or torch is None:
+            print(
+                "[REFLECT_V2] ser skipped",
+                {"classifier_available": classifier is not None, "torch_available": torch is not None},
+            )
             return
         eligible = [
             (index, context)
@@ -594,6 +812,7 @@ class ReflectV2Service:
             and (context["record"].no_speech_prob or 0.0) <= 0.6
         ]
         if not eligible:
+            print("[REFLECT_V2] ser skipped", {"reason": "no_eligible_windows"})
             return
 
         with ThreadPoolExecutor(max_workers=max(1, settings.reflect_ser_workers)) as executor:
@@ -601,6 +820,13 @@ class ReflectV2Service:
 
         for (index, _), result in zip(eligible, results):
             if not result:
+                print(
+                    "[REFLECT_V2] ser window failed",
+                    {
+                        "t_start": window_contexts[index]["record"].t_start,
+                        "t_end": window_contexts[index]["record"].t_end,
+                    },
+                )
                 continue
             record = window_contexts[index]["record"]
             record.ser_scores = result["scores"]
@@ -613,6 +839,18 @@ class ReflectV2Service:
             )
             record.flags.ser_available = True
             record.flags.tone_mismatch = bool(record.delivery_divergence is not None and record.delivery_divergence > 0.5)
+            print(
+                "[REFLECT_V2] ser window",
+                {
+                    "t_start": record.t_start,
+                    "t_end": record.t_end,
+                    "ser_scores": record.ser_scores,
+                    "ser_valence": record.ser_valence,
+                    "ser_arousal": record.ser_arousal,
+                    "delivery_divergence": record.delivery_divergence,
+                    "tone_mismatch": record.flags.tone_mismatch,
+                },
+            )
 
     def _run_ser_window(self, classifier, audio_slice: np.ndarray) -> dict[str, Any] | None:
         try:
@@ -638,6 +876,10 @@ class ReflectV2Service:
             samples: list[HrSample] = context["hr_samples"]
             if not samples:
                 means.append(None)
+                print(
+                    "[REFLECT_V2] hr window skipped",
+                    {"t_start": record.t_start, "t_end": record.t_end, "reason": "no_samples"},
+                )
                 continue
             bpms = np.array([sample.bpm for sample in samples], dtype=np.float32)
             qualities = [sample.quality for sample in samples if sample.quality is not None]
@@ -645,6 +887,14 @@ class ReflectV2Service:
             record.hr_quality = round(mean_quality, 4)
             if mean_quality < 0.5:
                 means.append(None)
+                print(
+                    "[REFLECT_V2] hr window suppressed",
+                    {
+                        "t_start": record.t_start,
+                        "t_end": record.t_end,
+                        "hr_quality": record.hr_quality,
+                    },
+                )
                 continue
             timestamps = np.array([(sample.t - samples[0].t) / 1000 for sample in samples], dtype=np.float32)
             slope = float(np.polyfit(timestamps, bpms, 1)[0]) if len(samples) > 1 and len(set(timestamps.tolist())) > 1 else 0.0
@@ -654,6 +904,18 @@ class ReflectV2Service:
             record.hr_slope = slope
             record.flags.hr_available = True
             means.append(record.hr_mean_bpm)
+            print(
+                "[REFLECT_V2] hr window",
+                {
+                    "t_start": record.t_start,
+                    "t_end": record.t_end,
+                    "hr_mean_bpm": record.hr_mean_bpm,
+                    "hr_peak_bpm": record.hr_peak_bpm,
+                    "hr_bpm_range": record.hr_bpm_range,
+                    "hr_slope": record.hr_slope,
+                    "hr_quality": record.hr_quality,
+                },
+            )
 
         valid_means = [value for value in means if value is not None]
         session_mean = float(np.mean(valid_means)) if valid_means else 0.0
@@ -663,6 +925,16 @@ class ReflectV2Service:
             record = context["record"]
             if record.hr_mean_bpm is not None:
                 record.hr_elevated = bool(record.hr_mean_bpm > threshold if session_std else record.hr_mean_bpm > session_mean + 3)
+                print(
+                    "[REFLECT_V2] hr elevation window",
+                    {
+                        "t_start": record.t_start,
+                        "t_end": record.t_end,
+                        "hr_mean_bpm": record.hr_mean_bpm,
+                        "threshold": threshold,
+                        "hr_elevated": record.hr_elevated,
+                    },
+                )
 
     def _summarize_session(
         self,
@@ -749,7 +1021,8 @@ class ReflectV2Service:
         if window_records and (sum(1 for record in window_records if record.flags.low_information) / len(window_records)) > 0.30:
             confidence_notes.append("significant portions of the session had insufficient speech for analysis")
         if not transcript_result.words:
-            confidence_notes.append("temporal transcript alignment was limited; window-level timing may be approximate")
+            confidence_notes.append("text analysis stayed session-level because transcript timestamps were unavailable")
+            confidence_notes.append("temporal transcript alignment was limited; audio and heart-rate windows are stronger than text timing")
 
         arc_text = self._describe_arc(classifiable, smoothed)
         acoustic_observations = self._summarize_acoustics(window_records)
