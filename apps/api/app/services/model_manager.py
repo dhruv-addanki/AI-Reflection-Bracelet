@@ -51,25 +51,29 @@ class ReflectModelManager:
         if ReflectModelManager._go_emotions is None:
             with ReflectModelManager._lock:
                 if ReflectModelManager._go_emotions is None:
-                    if AutoModelForSequenceClassification is None or AutoTokenizer is None:
-                        return None
-                    local_path = self._resolve_local_snapshot(GO_EMOTIONS_MODEL)
-                    model = AutoModelForSequenceClassification.from_pretrained(
-                        str(local_path),
-                        local_files_only=True,
-                    )
-                    tokenizer = AutoTokenizer.from_pretrained(
-                        str(local_path),
-                        local_files_only=True,
-                    )
-                    ReflectModelManager._go_emotions = pipeline(
-                        "text-classification",
-                        model=model,
-                        tokenizer=tokenizer,
-                        top_k=None,
-                        device=-1,
-                    )
-        return ReflectModelManager._go_emotions
+                    try:
+                        if AutoModelForSequenceClassification is None or AutoTokenizer is None:
+                            return None
+                        local_path = self._resolve_local_snapshot(GO_EMOTIONS_MODEL)
+                        model = AutoModelForSequenceClassification.from_pretrained(
+                            str(local_path),
+                            local_files_only=True,
+                        )
+                        tokenizer = AutoTokenizer.from_pretrained(
+                            str(local_path),
+                            local_files_only=True,
+                        )
+                        ReflectModelManager._go_emotions = pipeline(
+                            "text-classification",
+                            model=model,
+                            tokenizer=tokenizer,
+                            top_k=None,
+                            device=-1,
+                        )
+                    except Exception as exc:  # pragma: no cover - runtime dependency mismatch
+                        print("[MODEL_MANAGER] go_emotions unavailable", {"model": GO_EMOTIONS_MODEL, "error": str(exc)})
+                        ReflectModelManager._go_emotions = False
+        return ReflectModelManager._go_emotions if ReflectModelManager._go_emotions is not False else None
 
     def get_zero_shot(self):
         if pipeline is None or snapshot_download is None:  # pragma: no cover - dependency issue
@@ -77,24 +81,28 @@ class ReflectModelManager:
         if ReflectModelManager._zero_shot is None:
             with ReflectModelManager._lock:
                 if ReflectModelManager._zero_shot is None:
-                    if AutoModelForSequenceClassification is None or AutoTokenizer is None:
-                        return None
-                    local_path = self._resolve_local_snapshot(TRIGGER_MODEL)
-                    model = AutoModelForSequenceClassification.from_pretrained(
-                        str(local_path),
-                        local_files_only=True,
-                    )
-                    tokenizer = AutoTokenizer.from_pretrained(
-                        str(local_path),
-                        local_files_only=True,
-                    )
-                    ReflectModelManager._zero_shot = pipeline(
-                        "zero-shot-classification",
-                        model=model,
-                        tokenizer=tokenizer,
-                        device=-1,
-                    )
-        return ReflectModelManager._zero_shot
+                    try:
+                        if AutoModelForSequenceClassification is None or AutoTokenizer is None:
+                            return None
+                        local_path = self._resolve_local_snapshot(TRIGGER_MODEL)
+                        model = AutoModelForSequenceClassification.from_pretrained(
+                            str(local_path),
+                            local_files_only=True,
+                        )
+                        tokenizer = AutoTokenizer.from_pretrained(
+                            str(local_path),
+                            local_files_only=True,
+                        )
+                        ReflectModelManager._zero_shot = pipeline(
+                            "zero-shot-classification",
+                            model=model,
+                            tokenizer=tokenizer,
+                            device=-1,
+                        )
+                    except Exception as exc:  # pragma: no cover - runtime dependency mismatch
+                        print("[MODEL_MANAGER] zero_shot unavailable", {"model": TRIGGER_MODEL, "error": str(exc)})
+                        ReflectModelManager._zero_shot = False
+        return ReflectModelManager._zero_shot if ReflectModelManager._zero_shot is not False else None
 
     def get_ser(self):
         if torch is None or AutoModel is None:  # pragma: no cover - dependency issue

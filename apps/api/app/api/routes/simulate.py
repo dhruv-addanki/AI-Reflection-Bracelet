@@ -69,4 +69,7 @@ def simulate_session(
     except ValueError as exc:
         repository.mark_session_failed(session.id)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        repository.mark_session_failed(session.id)
+        raise HTTPException(status_code=500, detail=f"Session processing failed: {exc}") from exc
     return ApiEnvelope(data={"session": session, "evaluation": evaluation})

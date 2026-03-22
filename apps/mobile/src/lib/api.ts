@@ -30,7 +30,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {})
     }
   });
-  const payload = (await response.json()) as ApiEnvelope<T> | { detail?: string };
+  const payload = (await parseApiPayload<T>(response)) as ApiEnvelope<T> | { detail?: string };
   if (!response.ok || !("data" in payload)) {
     throw new Error(extractErrorDetail(payload));
   }
@@ -42,7 +42,7 @@ async function requestMultipart<T>(path: string, body: FormData): Promise<T> {
     method: "POST",
     body
   });
-  const payload = (await response.json()) as ApiEnvelope<T> | { detail?: string };
+  const payload = (await parseApiPayload<T>(response)) as ApiEnvelope<T> | { detail?: string };
   if (!response.ok || !("data" in payload)) {
     throw new Error(extractErrorDetail(payload));
   }
@@ -51,6 +51,18 @@ async function requestMultipart<T>(path: string, body: FormData): Promise<T> {
 
 function extractErrorDetail<T>(payload: ApiEnvelope<T> | { detail?: string }) {
   return "detail" in payload ? payload.detail ?? "Request failed" : "Request failed";
+}
+
+async function parseApiPayload<T>(response: Response): Promise<ApiEnvelope<T> | { detail?: string }> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return { detail: response.ok ? "Empty response from server." : "Request failed" };
+  }
+  try {
+    return JSON.parse(text) as ApiEnvelope<T> | { detail?: string };
+  } catch {
+    return { detail: text.trim() };
+  }
 }
 
 function mapUser(raw: Record<string, unknown>): UserProfile {
