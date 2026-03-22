@@ -36,18 +36,18 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="entries"
         options={{
-          title: "Entries",
+          title: "Reflections",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? "albums" : "albums-outline"} size={size} color={color} />
+            <Ionicons name={focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline"} size={size} color={color} />
           )
         }}
       />
       <Tabs.Screen
         name="patterns"
         options={{
-          title: "Patterns",
+          title: "Weekly",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? "pulse" : "pulse-outline"} size={size} color={color} />
+            <Ionicons name={focused ? "analytics" : "analytics-outline"} size={size} color={color} />
           )
         }}
       />

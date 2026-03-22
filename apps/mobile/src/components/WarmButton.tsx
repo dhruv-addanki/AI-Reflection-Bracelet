@@ -48,17 +48,22 @@ const styles = StyleSheet.create({
   },
   primary: {
     backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.accent
+    borderColor: theme.colors.accent,
+    shadowColor: "#D47C3C",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 3
   },
   ghost: {
-    backgroundColor: "transparent",
+    backgroundColor: theme.colors.backgroundElevated,
     borderColor: theme.colors.border
   },
   disabled: {
     opacity: 0.65
   },
   label: {
-    color: theme.colors.background,
+    color: "#FFF7F1",
     fontWeight: "600",
     fontSize: theme.typography.body
   },

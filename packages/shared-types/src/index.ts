@@ -90,6 +90,7 @@ export interface DailySummary {
   userId: string;
   date: string;
   emotionalRecap: string;
+  emotionDrivers: string[];
   hardestMoment: string;
   calmestMoment: string;
   repeatedFeeling: string;
@@ -97,6 +98,7 @@ export interface DailySummary {
   moodTimeline: TimelineBlock[];
   recapParagraph: string;
   reflectionPrompt: string;
+  reflectionResponse?: string | null;
   mixedFeelingInsight: string;
 }
 

@@ -190,6 +190,21 @@ class Repository:
             None,
         )
 
+    def list_daily_summaries_for_user(self, user_id: str) -> list[DailySummary]:
+        return sorted(
+            [summary for summary in self.state.daily_summaries if summary.user_id == user_id],
+            key=lambda item: item.date,
+            reverse=True,
+        )
+
+    def save_daily_reflection(self, user_id: str, target_date: date, response: str) -> DailySummary | None:
+        summary = self.get_daily_summary(user_id, target_date)
+        if summary is None:
+            return None
+        summary.reflection_response = response
+        self._save()
+        return summary
+
     def upsert_weekly_summary(self, summary: WeeklyPatternSummary) -> WeeklyPatternSummary:
         existing_index = next(
             (
@@ -214,4 +229,11 @@ class Repository:
                 if summary.user_id == user_id and summary.week_start == week_start
             ),
             None,
+        )
+
+    def list_weekly_summaries_for_user(self, user_id: str) -> list[WeeklyPatternSummary]:
+        return sorted(
+            [summary for summary in self.state.weekly_pattern_summaries if summary.user_id == user_id],
+            key=lambda item: item.week_start,
+            reverse=True,
         )

@@ -18,3 +18,8 @@ def get_weekly_summary(
 ) -> ApiEnvelope:
     week = start_of_week(parse_date_or_today(week_start))
     return ApiEnvelope(data=repository.get_weekly_summary(user_id, week))
+
+
+@router.get("/history", response_model=ApiEnvelope)
+def list_weekly_summaries(user_id: str, repository: Repository = Depends(get_repository)) -> ApiEnvelope:
+    return ApiEnvelope(data=repository.list_weekly_summaries_for_user(user_id))

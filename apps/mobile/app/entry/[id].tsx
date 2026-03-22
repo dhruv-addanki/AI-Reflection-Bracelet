@@ -32,7 +32,7 @@ export default function EntryDetailScreen() {
 
   return (
     <ScreenContainer>
-      <WarmButton label="Back to entries" onPress={handleBack} variant="ghost" style={styles.backButton} />
+      <WarmButton label="Back to reflections" onPress={handleBack} variant="ghost" style={styles.backButton} />
       <Text style={styles.title}>Entry detail</Text>
       {!detail ? (
         <Text style={styles.body}>Loading session...</Text>

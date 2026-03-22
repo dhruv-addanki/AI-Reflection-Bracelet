@@ -26,11 +26,11 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border
   },
   warm: {
-    backgroundColor: "rgba(240,138,60,0.12)",
+    backgroundColor: "#FCE7D2",
     borderColor: theme.colors.accentSoft
   },
   red: {
-    backgroundColor: "rgba(184,90,78,0.12)",
+    backgroundColor: "#F5DDD6",
     borderColor: theme.colors.redMuted
   },
   label: {

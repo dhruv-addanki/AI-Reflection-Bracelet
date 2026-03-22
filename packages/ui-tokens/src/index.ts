@@ -1,17 +1,17 @@
 export const colors = {
-  background: "#111111",
-  backgroundElevated: "#171717",
-  card: "#1C1C1C",
-  cardMuted: "#222222",
-  border: "#2E2A28",
-  text: "#F5EFE8",
-  textMuted: "#B5ACA3",
-  accent: "#F08A3C",
-  accentSoft: "#C96B33",
-  amber: "#D9A441",
-  redMuted: "#B85A4E",
-  gold: "#E0B45E",
-  success: "#8EA96B"
+  background: "#F7F0E6",
+  backgroundElevated: "#FFFDFC",
+  card: "#FBF1E3",
+  cardMuted: "#F2E4D0",
+  border: "#E6D3BC",
+  text: "#4C2E25",
+  textMuted: "#7E5E4A",
+  accent: "#F58038",
+  accentSoft: "#E89A63",
+  amber: "#D8A058",
+  redMuted: "#C36D58",
+  gold: "#C89447",
+  success: "#879D6A"
 } as const;
 
 export const spacing = {

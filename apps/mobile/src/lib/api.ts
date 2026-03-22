@@ -135,6 +135,7 @@ function mapDailySummary(raw: Record<string, unknown> | null): DailySummary | nu
     userId: String(raw.user_id),
     date: String(raw.date),
     emotionalRecap: String(raw.emotional_recap),
+    emotionDrivers: (raw.emotion_drivers as string[]) ?? [],
     hardestMoment: String(raw.hardest_moment),
     calmestMoment: String(raw.calmest_moment),
     repeatedFeeling: String(raw.repeated_feeling),
@@ -142,6 +143,7 @@ function mapDailySummary(raw: Record<string, unknown> | null): DailySummary | nu
     moodTimeline: ((raw.mood_timeline_json as Record<string, unknown>[]) ?? []).map(mapTimelineBlock),
     recapParagraph: String(raw.recap_paragraph),
     reflectionPrompt: String(raw.reflection_prompt),
+    reflectionResponse: raw.reflection_response ? String(raw.reflection_response) : null,
     mixedFeelingInsight: String(raw.mixed_feeling_insight ?? "")
   };
 }
@@ -203,7 +205,7 @@ export async function listDevices(userId: string): Promise<Device[]> {
   return raw.map(mapDevice);
 }
 
-export async function getTodaySessions(userId: string, date: string): Promise<Array<{ session: RawSession; evaluation: ClipEvaluation | null }>> {
+export async function getTodaySessions(userId: string, date: string): Promise<{ session: RawSession; evaluation: ClipEvaluation | null }[]> {
   const raw = await request<SessionRecord[]>(`/sessions/today?user_id=${userId}&date=${date}`);
   return raw.map((item) => ({
     session: mapRawSession(item.session),
@@ -224,9 +226,31 @@ export async function getDailySummary(userId: string, date: string): Promise<Dai
   return mapDailySummary(raw);
 }
 
+export async function getReflectionHistory(userId: string): Promise<DailySummary[]> {
+  const raw = await request<Record<string, unknown>[]>(`/summaries/history?user_id=${userId}`);
+  return raw.map((item) => mapDailySummary(item)).filter((item): item is DailySummary => Boolean(item));
+}
+
+export async function saveDailyReflection(userId: string, date: string, response: string): Promise<DailySummary> {
+  const raw = await request<Record<string, unknown>>("/summaries/reflection", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: userId,
+      date,
+      response
+    })
+  });
+  return mapDailySummary(raw)!;
+}
+
 export async function getWeeklyPatterns(userId: string, weekStart: string): Promise<WeeklyPatternSummary | null> {
   const raw = await request<Record<string, unknown> | null>(`/patterns/weekly?user_id=${userId}&week_start=${weekStart}`);
   return mapWeeklySummary(raw);
+}
+
+export async function getWeeklyPatternHistory(userId: string): Promise<WeeklyPatternSummary[]> {
+  const raw = await request<Record<string, unknown>[]>(`/patterns/history?user_id=${userId}`);
+  return raw.map((item) => mapWeeklySummary(item)).filter((item): item is WeeklyPatternSummary => Boolean(item));
 }
 
 export async function simulateSession(payload: SimulationPayload): Promise<{ session: RawSession; evaluation: ClipEvaluation | null }> {

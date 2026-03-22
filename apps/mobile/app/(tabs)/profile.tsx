@@ -24,7 +24,10 @@ export default function ProfileScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Profile</Text>
+      <View style={styles.hero}>
+        <Text style={styles.title}>Profile</Text>
+        <Text style={styles.subtitle}>Your bracelet context, support preferences, and demo controls live here.</Text>
+      </View>
 
       <SectionCard title="User context">
         {user ? (
@@ -73,10 +76,18 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  hero: {
+    gap: theme.spacing.xs
+  },
   title: {
     color: theme.colors.text,
     fontFamily: theme.typefaces.heading,
     fontSize: 30
+  },
+  subtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.typography.body,
+    lineHeight: 22
   },
   primary: {
     color: theme.colors.text,

@@ -13,12 +13,17 @@ export function ReflectionPromptCard({ prompt }: { prompt: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "rgba(240,138,60,0.08)",
+    backgroundColor: "#FCE9D5",
     borderColor: theme.colors.accentSoft,
     borderWidth: 1,
     borderRadius: theme.radii.lg,
     padding: theme.spacing.md,
-    gap: theme.spacing.xs
+    gap: theme.spacing.xs,
+    shadowColor: "#C7844E",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 2
   },
   eyebrow: {
     color: theme.colors.accent,

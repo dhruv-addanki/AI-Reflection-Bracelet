@@ -48,8 +48,10 @@ class AggregationService:
         ]
 
         mixed = []
+        self_talk_markers = []
         for _, evaluation in enriched:
             mixed.extend(evaluation.mixed_feelings)
+            self_talk_markers.extend(evaluation.self_talk_markers)
 
         v2_summaries = [
             evaluation.raw_model_outputs_json.get("pipeline_v2", {}).get("multimodal_summary", {})
@@ -60,6 +62,20 @@ class AggregationService:
             for summary in v2_summaries
             for trigger in summary.get("repeated_triggers", [])
         ]
+        drivers = [
+            item
+            for item, _ in Counter(
+                repeated_triggers
+                + self_talk_markers
+                + [tag for _, evaluation in enriched for tag in evaluation.trigger_tags]
+            ).most_common(3)
+        ]
+        top_driver = drivers[0] if drivers else "stacked stressors"
+        emotional_recap = (
+            f"Today carried a lot of {repeated_feeling}, mostly around {top_driver}."
+            if repeated_feeling
+            else f"Today seemed shaped by {top_driver}."
+        )
         mixed_insight = (
             f"You may have been feeling {mixed[0]}."
             if mixed
@@ -70,7 +86,8 @@ class AggregationService:
             id=f"daily_{uuid4().hex[:12]}",
             user_id=user_id,
             date=target_date,
-            emotional_recap="It sounds like today moved between pressure, effort, and small moments of release.",
+            emotional_recap=emotional_recap,
+            emotion_drivers=drivers or ["general overload", "internal pressure"],
             hardest_moment=highest[1].one_line_summary,
             calmest_moment=calmest[1].one_line_summary,
             repeated_feeling=repeated_feeling,
@@ -86,7 +103,7 @@ class AggregationService:
                 ),
                 "Your day seems to have carried a steady undercurrent of strain, especially around demands that felt stacked. Still, there were signs that venting, stepping away, or naming the feeling gave you a little more room.",
             ),
-            reflection_prompt="When you started feeling overloaded, what helped you feel even slightly more grounded?",
+            reflection_prompt=f"When {top_driver} showed up today, what did you need most in that moment?",
             mixed_feeling_insight=mixed_insight,
         )
 

@@ -56,6 +56,12 @@ class SeedDemoRequest(BaseModel):
     reset: bool = Field(default=True)
 
 
+class SaveReflectionRequest(BaseModel):
+    user_id: str
+    date: str
+    response: str
+
+
 class BraceletTestUploadRequest(BaseModel):
     user_id: str
     device_id: str

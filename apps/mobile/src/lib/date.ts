@@ -23,3 +23,18 @@ export function formatFriendlyDate(isoString: string): string {
     day: "numeric"
   });
 }
+
+export function formatLongDate(isoString: string): string {
+  return new Date(isoString).toLocaleDateString([], {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  });
+}
+
+export function formatWeekOf(isoString: string): string {
+  return new Date(isoString).toLocaleDateString([], {
+    month: "long",
+    day: "numeric"
+  });
+}

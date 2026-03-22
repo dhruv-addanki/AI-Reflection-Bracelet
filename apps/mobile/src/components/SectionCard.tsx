@@ -28,7 +28,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
-    gap: theme.spacing.sm
+    gap: theme.spacing.sm,
+    shadowColor: "#B77A4C",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 3
   },
   title: {
     color: theme.colors.text,

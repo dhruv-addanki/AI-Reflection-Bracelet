@@ -72,6 +72,7 @@ class DailySummary(BaseModel):
     user_id: str
     date: date
     emotional_recap: str
+    emotion_drivers: list[str] = Field(default_factory=list)
     hardest_moment: str
     calmest_moment: str
     repeated_feeling: str
@@ -79,6 +80,7 @@ class DailySummary(BaseModel):
     mood_timeline_json: list[TimelineBlock]
     recap_paragraph: str
     reflection_prompt: str
+    reflection_response: str | None = None
     mixed_feeling_insight: str
 
 
