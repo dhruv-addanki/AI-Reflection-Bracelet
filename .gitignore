@@ -11,3 +11,4 @@ dist
 apps/api/data/*.json
 apps/mobile/.expo
 apps/mobile/dist
+apps/api/.model-cache/
